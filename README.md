@@ -83,12 +83,14 @@ docker compose up --build
 | RabbitMQ UI      | <http://localhost:15672/> (guest / guest)           |
 | example-worker   | consumes the `email` and `analytics` queues         |
 | mailer-worker    | consumes the `mailer` queue (bin reminder emails)   |
+| scheduler        | Celery Beat: daily 08:00 check that triggers the bin reminder |
 | Mailpit          | <http://localhost:8025/> (catches all outgoing mail), SMTP `localhost:1025` |
 
-The mailer worker needs its own env file and a Google service account key:
+The mailer worker and the scheduler need their own env files and a Google service account key:
 
 ```bash
 cp workers/mailer/.env.example workers/mailer/.env
+cp workers/scheduler/.env.example workers/scheduler/.env
 # in .env: GOOGLE_CREDENTIALS_FILE=/path/to/credentials.json
 ```
 
@@ -103,6 +105,7 @@ Tests (`--no-deps` keeps the running RabbitMQ untouched):
 ```bash
 docker compose run --rm --no-deps hub python manage.py test
 docker compose run --rm --no-deps mailer-worker python -m unittest
+docker compose run --rm --no-deps scheduler python -m unittest
 ```
 
 ## Mailer: bin-change reminder
@@ -113,7 +116,7 @@ docker compose run --rm --no-deps mailer-worker python -m unittest
 2. Reads the name of the person responsible (`REPLACER_RANGE`, default `Glavna!A5`).
 3. Sends one email to all tenants saying who is responsible today.
 
-The task **always sends** when triggered; it doesn't check any date. The emitter decides when to send the notification (for example a cron job on the scheduled days):
+The task **always sends** when triggered; it doesn't check any date. The emitter decides when to send the notification; normally that's the [scheduler](#scheduler-daily-trigger). To send one by hand:
 
 ```bash
 curl -X POST localhost:8000/notifications/ -H 'Content-Type: application/json' \
@@ -121,6 +124,30 @@ curl -X POST localhost:8000/notifications/ -H 'Content-Type: application/json' \
 ```
 
 `data` is ignored.
+
+## Scheduler: daily trigger
+
+`workers/scheduler/` is a producer: a Celery worker with Beat embedded (`celery worker -B`). Every day at **08:00 Europe/Belgrade** it:
+
+1. Reads the scheduled date from the sheet (`REPLACER_DATE_RANGE`, default `Glavna!B5`, format `M/D/YYYY`).
+2. If that date is today, posts `okrugiceva.bin_reminder` to the hub (`HUB_URL`). The hub routes it to the mailer as usual.
+
+It goes through the hub's HTTP endpoint, so `routing.json` still decides where the notification ends up. Network errors, Google API errors and hub 5xx responses are retried up to 5 times with backoff. A hub 4xx (for example an unknown notification id) fails straight away, because it means the config is wrong.
+
+Run the check by hand:
+
+```bash
+# real check against today's date
+docker compose exec scheduler celery -A scheduler call scheduler.check_bin_reminder
+
+# pretend today is another day (testing only)
+docker compose exec scheduler celery -A scheduler call scheduler.check_bin_reminder \
+  --kwargs '{"today_override": "2026-11-06"}'
+
+docker compose logs -f scheduler   # shows "not due" or "triggered"
+```
+
+If the container is down at 08:00, that day's check is skipped; Beat doesn't catch up missed runs.
 
 By default mail goes to **Mailpit**, which catches every email and shows it at <http://localhost:8025/>; nothing is delivered. For real delivery, set the Gmail SMTP settings in `workers/mailer/.env` (see the commented block in `.env.example`) using a Gmail App Password. SMTP connection errors are retried up to 5 times with backoff.
 
@@ -153,5 +180,6 @@ hub/                         Django project (publisher)
   notifications/tests.py
 workers/example/             template Celery consumer app
 workers/mailer/              bin reminder mailer (Google Sheets + SMTP)
-docker-compose.yml           rabbitmq, hub, example-worker, mailer-worker, mailpit
+workers/scheduler/           Celery Beat producer: daily date check -> posts the notification
+docker-compose.yml           rabbitmq, hub, example-worker, mailer-worker, scheduler, mailpit
 ```

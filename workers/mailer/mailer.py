@@ -3,6 +3,7 @@
 Reads tenant emails and today's "replacer" from a Google Sheet and emails
 everyone a reminder. When to send is decided by whoever emits the notification.
 """
+
 import html
 import os
 import smtplib
@@ -27,10 +28,16 @@ def env(name: str, default: str | None = None) -> str:
 
 def _sheet_values(range_: str) -> list[list[str]]:
     credentials = service_account.Credentials.from_service_account_file(
-        env("GOOGLE_CREDENTIALS_PATH", "/secrets/credentials.json"), scopes=SHEETS_SCOPES
+        env("GOOGLE_CREDENTIALS_PATH", "/secrets/credentials.json"),
+        scopes=SHEETS_SCOPES,
     )
     sheets = build("sheets", "v4", credentials=credentials, cache_discovery=False)
-    result = sheets.spreadsheets().values().get(spreadsheetId=env("SPREADSHEET_ID"), range=range_).execute()
+    result = (
+        sheets.spreadsheets()
+        .values()
+        .get(spreadsheetId=env("SPREADSHEET_ID"), range=range_)
+        .execute()
+    )
     return result.get("values", [])
 
 
@@ -43,7 +50,9 @@ def parse_replacer(rows: list[list[str]]) -> str:
     """The replacer's name is the first cell of the first row."""
     name = rows[0][0].strip() if rows and rows[0] else ""
     if not name:
-        raise ValueError(f"expected the replacer's name in the first cell, got {rows!r}")
+        raise ValueError(
+            f"expected the replacer's name in the first cell, got {rows!r}"
+        )
     return name
 
 
@@ -138,7 +147,11 @@ def build_message(recipients: list[str], replacer: str) -> EmailMessage:
     msg["From"] = formataddr((sender, env("MAIL_FROM")))
     msg["To"] = ", ".join(recipients)
     msg["Message-ID"] = make_msgid()
-    msg.set_content(TEXT_TEMPLATE.format(replacer=replacer, schedule_url=schedule_url, sender=sender))
+    msg.set_content(
+        TEXT_TEMPLATE.format(
+            replacer=replacer, schedule_url=schedule_url, sender=sender
+        )
+    )
     msg.add_alternative(
         HTML_TEMPLATE.format(
             subject=html.escape(SUBJECT),

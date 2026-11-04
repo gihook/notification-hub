@@ -49,6 +49,23 @@ services:
       mailpit:
         condition: service_started
 
+  scheduler:
+    # Celery worker with embedded Beat: daily 08:00 Europe/Belgrade check that
+    # posts okrugiceva.bin_reminder to the hub when the sheet date is today.
+    build: ./workers/scheduler
+    env_file:
+      - .env
+      - workers/scheduler/.env
+    environment:
+      GOOGLE_CREDENTIALS_PATH: /secrets/credentials.json
+    volumes:
+      - ${GOOGLE_CREDENTIALS_FILE:-./secrets/google-credentials.json}:/secrets/credentials.json:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      hub:
+        condition: service_started
+
   mailpit:
     image: axllent/mailpit:v1.24
     ports:
