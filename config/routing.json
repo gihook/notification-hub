@@ -1,0 +1,12 @@
+{
+  "default_task": "notifications.handle",
+  "routes": {
+    "user.signup": [
+      {"queue": "email"},
+      {"queue": "analytics"}
+    ],
+    "order.created": [
+      {"queue": "orders", "task": "orders.process"}
+    ]
+  }
+}

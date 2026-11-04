@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notification Hub</title>
+  <style>
+    :root { --bg: #fafafa; --fg: #1f2328; --muted: #656d76; --card: #fff; --border: #d0d7de; --accent: #0969da; --code: #f1f3f5; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --card: #161b22; --border: #30363d; --accent: #4493f8; --code: #1f242c; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
+    main { max-width: 860px; margin: 0 auto; padding: 40px 16px 64px; }
+    h1 { margin: 0 0 4px; font-size: 28px; }
+    h2 { margin: 36px 0 12px; font-size: 18px; }
+    p.lead { margin: 0; color: var(--muted); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+    pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 0; }
+    pre code { background: none; padding: 0; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+    td.id code { color: var(--accent); font-weight: 600; }
+    ul.targets { list-style: none; margin: 0; padding: 0; }
+    ul.targets li + li { margin-top: 4px; }
+    .muted { color: var(--muted); }
+    ol { padding-left: 20px; }
+    li { margin: 4px 0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Notification Hub</h1>
+  <p class="lead">Receives notifications over HTTP and routes them through RabbitMQ to Celery consumers.</p>
+
+  <h2>Available notifications ({{ routes|length }})</h2>
+  {% if routes %}
+  <div class="card">
+    <table>
+      <thead><tr><th>notification_id</th><th>Queue → Celery task</th></tr></thead>
+      <tbody>
+      {% for notification_id, targets in routes %}
+        <tr>
+          <td class="id"><code>{{ notification_id }}</code></td>
+          <td>
+            <ul class="targets">
+            {% for t in targets %}
+              <li><code>{{ t.queue }}</code> <span class="muted">→</span> <code>{{ t.task }}</code></li>
+            {% endfor %}
+            </ul>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No notifications are configured. Add routes to <code>config/routing.json</code>.</p>
+  {% endif %}
+
+  <h2>Send a notification</h2>
+  <pre><code>curl -X POST {{ endpoint }} \
+  -H 'Content-Type: application/json' \
+  -d '{"notification_id": "{{ example_id }}", "data": {"any": "json"}}'</code></pre>
+  <p class="muted">Responses: <code>202</code> queued · <code>400</code> invalid body · <code>404</code> unknown notification_id · <code>503</code> broker unavailable.</p>
+
+  <h2>How it works</h2>
+  <ol>
+    <li>The hub looks up <code>notification_id</code> in <code>config/routing.json</code>.</li>
+    <li>For every target it publishes one Celery message to that queue in RabbitMQ.</li>
+    <li>A Celery worker consuming that queue runs the task with the same name. It gets <code>event_id</code>, <code>notification_id</code>, <code>data</code> and <code>received_at</code> as keyword arguments.</li>
+  </ol>
+</main>
+</body>
+</html>
