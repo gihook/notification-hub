@@ -7,6 +7,9 @@
     ],
     "order.created": [
       {"queue": "orders", "task": "orders.process"}
+    ],
+    "okrugiceva.bin_reminder": [
+      {"queue": "mailer", "task": "mailer.send_bin_reminder"}
     ]
   }
 }

@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+secrets/
+# legacy script with a hardcoded SMTP password
+index.js

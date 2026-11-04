@@ -82,8 +82,17 @@ docker compose up --build
 | RabbitMQ AMQP    | `localhost:5672`                                    |
 | RabbitMQ UI      | <http://localhost:15672/> (guest / guest)           |
 | example-worker   | consumes the `email` and `analytics` queues         |
+| mailer-worker    | consumes the `mailer` queue (bin reminder emails)   |
+| Mailpit          | <http://localhost:8025/> (catches all outgoing mail), SMTP `localhost:1025` |
 
-If those host ports are already taken, override them with `HUB_PORT`, `RABBITMQ_PORT` and `RABBITMQ_UI_PORT`:
+The mailer worker needs its own env file and a Google service account key:
+
+```bash
+cp workers/mailer/.env.example workers/mailer/.env
+# in .env: GOOGLE_CREDENTIALS_FILE=/path/to/credentials.json
+```
+
+If those host ports are already taken, override them with `HUB_PORT`, `RABBITMQ_PORT`, `RABBITMQ_UI_PORT`, `MAILPIT_UI_PORT` and `MAILPIT_SMTP_PORT`:
 
 ```bash
 RABBITMQ_PORT=5673 RABBITMQ_UI_PORT=15673 docker compose up -d
@@ -93,7 +102,27 @@ Tests (`--no-deps` keeps the running RabbitMQ untouched):
 
 ```bash
 docker compose run --rm --no-deps hub python manage.py test
+docker compose run --rm --no-deps mailer-worker python -m unittest
 ```
+
+## Mailer: bin-change reminder
+
+`workers/mailer/` is a Python port of `okrugiceva-24/mail-sender/index.js`. It handles the `okrugiceva.bin_reminder` notification:
+
+1. Reads the tenant emails from the Google Sheet (`EMAILS_RANGE`, default `Stanari!C2:C100`).
+2. Reads the name of the person responsible (`REPLACER_RANGE`, default `Glavna!A5`).
+3. Sends one email to all tenants saying who is responsible today.
+
+The task **always sends** when triggered; it doesn't check any date. The emitter decides when to send the notification (for example a cron job on the scheduled days):
+
+```bash
+curl -X POST localhost:8000/notifications/ -H 'Content-Type: application/json' \
+  -d '{"notification_id": "okrugiceva.bin_reminder"}'
+```
+
+`data` is ignored.
+
+By default mail goes to **Mailpit**, which catches every email and shows it at <http://localhost:8025/>; nothing is delivered. For real delivery, set the Gmail SMTP settings in `workers/mailer/.env` (see the commented block in `.env.example`) using a Gmail App Password. SMTP connection errors are retried up to 5 times with backoff.
 
 ## Adding a consumer app
 
@@ -123,5 +152,6 @@ hub/                         Django project (publisher)
   notifications/templates/   landing page template
   notifications/tests.py
 workers/example/             template Celery consumer app
-docker-compose.yml           rabbitmq, hub, example-worker
+workers/mailer/              bin reminder mailer (Google Sheets + SMTP)
+docker-compose.yml           rabbitmq, hub, example-worker, mailer-worker, mailpit
 ```
