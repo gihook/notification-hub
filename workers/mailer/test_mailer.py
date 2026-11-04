@@ -29,10 +29,14 @@ class MessageTests(unittest.TestCase):
     def test_build_message(self):
         msg = mailer.build_message(["a@x.com", "b@x.com"], "<Marko>")
         self.assertEqual(msg["To"], "a@x.com, b@x.com")
-        self.assertEqual(msg["Subject"], "Podsetnik za menjanje kesa")
+        self.assertEqual(msg["Subject"], "Podsetnik: danas se menjaju kese (<Marko>)")
         html = msg.get_body(("html",)).get_content()
-        self.assertIn("<b>&lt;Marko&gt;</b>", html)
+        self.assertIn("&lt;Marko&gt;", html)
+        self.assertNotIn("<Marko>", html)
         self.assertIn('href="https://example.com/schedule?a=1&amp;b=2"', html)
+        text = msg.get_body(("plain",)).get_content()
+        self.assertIn("Zadužen/a za danas: <Marko>", text)
+        self.assertIn("https://example.com/schedule?a=1&b=2", text)
 
 
 @mock.patch.object(mailer, "send_message")

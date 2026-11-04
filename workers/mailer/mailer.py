@@ -58,25 +58,94 @@ def get_replacer() -> str:
 # ---------------------------------------------------------------------- Email
 
 
+# Email clients ignore <style> blocks and modern CSS, so the HTML uses tables and
+# inline styles only. Placeholders are filled with str.format (hence doubled braces).
+HTML_TEMPLATE = """\
+<!doctype html>
+<html lang="sr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{subject}</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f2;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Danas je zadužen/a {replacer}.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f2;">
+  <tr><td align="center" style="padding:32px 16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #dde5df;
+                  font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2a24;">
+      <tr><td style="background:#2f7a4f;padding:20px 28px;">
+        <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#cfe8d8;">{sender}</div>
+        <div style="font-size:22px;font-weight:700;color:#ffffff;margin-top:4px;">&#128465;&#65039; Danas se menjaju kese</div>
+      </td></tr>
+      <tr><td style="padding:28px 28px 8px;font-size:16px;line-height:1.6;">
+        <p style="margin:0 0 16px;">Pozdrav,</p>
+        <p style="margin:0 0 20px;">podsećam vas da je danas dan za menjanje kesa u dvorištu.</p>
+      </td></tr>
+      <tr><td style="padding:0 28px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+               style="background:#eef7f1;border:1px solid #cde5d6;border-radius:10px;">
+          <tr><td style="padding:18px 20px;">
+            <div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#4d6b58;">Zadužen/a za danas</div>
+            <div style="font-size:24px;font-weight:700;color:#1f5c3a;margin-top:4px;">{replacer}</div>
+          </td></tr>
+        </table>
+      </td></tr>
+      <tr><td style="padding:20px 28px 8px;font-size:15px;line-height:1.6;color:#3b4a41;">
+        <p style="margin:0;">Ukoliko je zaduženi zauzet, neka pusti mail da ga neko odmeni.</p>
+      </td></tr>
+      <tr><td align="left" style="padding:20px 28px 28px;">
+        <a href="{schedule_url}"
+           style="display:inline-block;background:#2f7a4f;color:#ffffff;text-decoration:none;font-weight:600;
+                  font-size:15px;padding:12px 22px;border-radius:8px;">Pogledaj raspored</a>
+      </td></tr>
+      <tr><td style="padding:16px 28px;border-top:1px solid #e6ece8;font-size:12px;color:#7a8a80;">
+        Ova poruka je poslata automatski.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>
+"""
+
+TEXT_TEMPLATE = """\
+Pozdrav,
+
+podsećam vas da je danas dan za menjanje kesa u dvorištu.
+
+Zadužen/a za danas: {replacer}
+
+Ukoliko je zaduženi zauzet, neka pusti mail da ga neko odmeni.
+
+Raspored: {schedule_url}
+
+--
+{sender} · ova poruka je poslata automatski.
+"""
+
+SUBJECT = "Podsetnik: danas se menjaju kese"
+
+
 def build_message(recipients: list[str], replacer: str) -> EmailMessage:
     schedule_url = env("SCHEDULE_URL")
+    sender = env("MAIL_FROM_NAME", "Okrugiceva 24")
+
     msg = EmailMessage()
-    msg["Subject"] = "Podsetnik za menjanje kesa"
-    msg["From"] = formataddr((env("MAIL_FROM_NAME", "Okrugiceva 24"), env("MAIL_FROM")))
+    msg["Subject"] = f"{SUBJECT} ({replacer})"
+    msg["From"] = formataddr((sender, env("MAIL_FROM")))
     msg["To"] = ", ".join(recipients)
     msg["Message-ID"] = make_msgid()
-    msg.set_content(
-        "Pozdrav,\n\n"
-        f"podsećam vas da je danas dan za menjanje kesa u dvorištu. Zadužen za danas je {replacer}. "
-        "Ukoliko je zaduženi zauzet neka pusti mail da ga neko odmeni.\n\n"
-        f"Raspored možete videti ovde: {schedule_url}\n"
-    )
+    msg.set_content(TEXT_TEMPLATE.format(replacer=replacer, schedule_url=schedule_url, sender=sender))
     msg.add_alternative(
-        "<p>Pozdrav,</p>\n"
-        "<p>podsećam vas da je danas dan za menjanje kesa u dvorištu. "
-        f"Zadužen za danas je <b>{html.escape(replacer)}</b>. "
-        "Ukoliko je zaduženi zauzet neka pusti mail da ga neko odmeni.</p>\n"
-        f'<p>Raspored možete videti <a href="{html.escape(schedule_url)}">ovde</a>.</p>\n',
+        HTML_TEMPLATE.format(
+            subject=html.escape(SUBJECT),
+            sender=html.escape(sender),
+            replacer=html.escape(replacer),
+            schedule_url=html.escape(schedule_url),
+        ),
         subtype="html",
     )
     return msg
