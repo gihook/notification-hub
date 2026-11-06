@@ -108,6 +108,66 @@ docker compose run --rm --no-deps mailer-worker python -m unittest
 docker compose run --rm --no-deps scheduler python -m unittest
 ```
 
+## Deploying (Proxmox LXC)
+
+Production uses the base compose file plus `docker-compose.prod.yml`. That file adds restart policies, RabbitMQ credentials and log size caps, and stops publishing AMQP. It also disables `example-worker` and `mailpit` (start them with `--profile dev`). It needs Docker Compose v2.24 or newer.
+
+**1. Create the container** on Proxmox from the Debian 12 template:
+
+- Unprivileged
+- 1–2 vCPU, 1–2 GB RAM, 8–16 GB disk
+- A fixed LAN IP
+- "Start at boot" turned on
+
+Docker needs nesting and keyctl. Run this on the Proxmox host, then restart the CT:
+
+```bash
+pct set <CTID> -features nesting=1,keyctl=1
+```
+
+**2. Install Docker** in the CT from Docker's apt repo (see docs.docker.com/engine/install/debian):
+
+```bash
+apt install -y ca-certificates curl git
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+echo "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+docker run --rm hello-world
+```
+
+**3. Get the code and the secrets.** None of the secrets are in git, so copy them in with `scp`:
+
+```bash
+git clone <repo-url> /opt/notification-hub && cd /opt/notification-hub
+cp .env.example .env
+cp workers/mailer/.env.example workers/mailer/.env
+cp workers/scheduler/.env.example workers/scheduler/.env
+mkdir -p secrets && chmod 700 secrets   # put google-credentials.json here
+chmod 644 secrets/google-credentials.json   # workers run as a non-root user inside the container
+```
+
+- `.env` needs these values:
+  - a random `DJANGO_SECRET_KEY`
+  - `DJANGO_ALLOWED_HOSTS=<lxc-ip>,<hostname>`
+  - `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS`
+  - a `CELERY_BROKER_URL` that uses those same credentials
+  - `GOOGLE_CREDENTIALS_FILE=./secrets/google-credentials.json`
+- `workers/mailer/.env`: switch to the Gmail SMTP block (App Password).
+- `workers/scheduler/.env`: the defaults work as they are.
+
+**4. Start the stack, and update it later:**
+
+```bash
+alias dcp='docker compose -f docker-compose.yml -f docker-compose.prod.yml'
+dcp up -d --build          # first start
+git pull && dcp up -d --build   # update
+dcp ps; dcp logs -f mailer-worker scheduler
+```
+
+Once it's running, the hub is at `http://<lxc-ip>:8000/` and the RabbitMQ UI at `http://<lxc-ip>:15672/` (log in with the new credentials). For backups, a Proxmox `vzdump` of the CT covers the queued messages and the secrets.
+
 ## Mailer: bin-change reminder
 
 `workers/mailer/` is a Python port of `okrugiceva-24/mail-sender/index.js`. It handles the `okrugiceva.bin_reminder` notification:
@@ -182,4 +242,5 @@ workers/example/             template Celery consumer app
 workers/mailer/              bin reminder mailer (Google Sheets + SMTP)
 workers/scheduler/           Celery Beat producer: daily date check -> posts the notification
 docker-compose.yml           rabbitmq, hub, example-worker, mailer-worker, scheduler, mailpit
+docker-compose.prod.yml      production override (restart, creds, no AMQP/mailpit/example)
 ```

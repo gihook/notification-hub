@@ -1,0 +1,49 @@
+# Production override. Use together with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Differences from the dev setup:
+#   - every service restarts automatically (also after a reboot)
+#   - RabbitMQ uses credentials from .env instead of guest/guest
+#   - AMQP (5672) is not published; only the hub and the RabbitMQ UI are reachable
+#   - example-worker and mailpit are disabled (start them with --profile dev)
+#   - container logs are size-capped
+#
+# Requires Docker Compose v2.24+ (for !override).
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  rabbitmq:
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?set RABBITMQ_DEFAULT_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?set RABBITMQ_DEFAULT_PASS in .env}
+    ports: !override
+      - "${RABBITMQ_UI_PORT:-15672}:15672"   # management UI only; AMQP stays internal
+
+  hub:
+    restart: unless-stopped
+    logging: *logging
+
+  mailer-worker:
+    restart: unless-stopped
+    logging: *logging
+    depends_on: !override
+      rabbitmq:
+        condition: service_healthy
+
+  scheduler:
+    restart: unless-stopped
+    logging: *logging
+
+  example-worker:
+    profiles: ["dev"]
+
+  mailpit:
+    profiles: ["dev"]
